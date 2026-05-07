@@ -1,0 +1,22 @@
+# Environment & Secrets — JANGAN PERNAH DI-COMMIT
+.env
+
+# Virtual Environment
+venv/
+env/
+__pycache__/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+
+# Data sensitif (opsional, hilangkan jika CV tidak sensitif)
+# data/
+
+# FAISS index yang disimpan ke disk (di-rebuild otomatis, tidak perlu di-commit)
+data/faiss_index/
+
+# FAISS index jika disimpan ke disk (format lama)
+*.faiss
+*.pkl
