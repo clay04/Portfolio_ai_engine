@@ -12,8 +12,7 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from app.core.config import settings
 
-# Konstanta
-FAISS_INDEX_PATH = "data/faiss_index"
+FAISS_INDEX_PATH = os.environ.get("FAISS_INDEX_PATH", "data/faiss_index")
 
 # Error Gemini yang memicu fallback ke Groq
 GEMINI_FALLBACK_ERRORS = (
@@ -38,14 +37,11 @@ ATURAN PENTING:
    pertanyaan lanjutan.
 4. Jawab dengan bahasa yang profesional dan ramah.
 5. Gunakan bahasa yang sama dengan bahasa pertanyaan (Indonesia atau Inggris).
-6. Jawaban HARUS ringkas, maksimal 3–5 kalimat.
-7. Gunakan bullet point jika menjelaskan lebih dari 1 poin.
-8. Hindari paragraf panjang.
 
 Konteks dari CV Clay:
 {context}"""
 
-# Singleton state 
+# Singleton state
 _retriever = None
 _llm_gemini = None
 _llm_groq = None
@@ -66,7 +62,7 @@ class GeminiRESTEmbeddings(Embeddings):
                 if attempt == max_retries - 1:
                     raise
                 wait = 2 ** attempt
-                print(f"  Embedding retry {attempt+1} dalam {wait}s... Error: {e}")
+                print(f"   ⚠️  Embedding retry {attempt+1} dalam {wait}s... Error: {e}")
                 time.sleep(wait)
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
@@ -84,16 +80,16 @@ def _load_or_build_vectorstore() -> FAISS:
     embeddings = GeminiRESTEmbeddings(api_key=settings.GOOGLE_API_KEY)
 
     if os.path.exists(FAISS_INDEX_PATH):
-        print("Memuat FAISS index dari disk...")
+        print("📂  Memuat FAISS index dari disk...")
         vs = FAISS.load_local(FAISS_INDEX_PATH, embeddings, allow_dangerous_deserialization=True)
-        print("FAISS index dimuat.")
+        print("✅  FAISS index dimuat.")
         return vs
 
     pdf_path = settings.PDF_PATH
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"File CV tidak ditemukan: '{pdf_path}'.")
 
-    print(" Membaca PDF...")
+    print("📄  Membaca PDF...")
     documents = PyPDFLoader(pdf_path).load()
     chunks = RecursiveCharacterTextSplitter(
         chunk_size=settings.CHUNK_SIZE,
@@ -111,7 +107,7 @@ def _load_or_build_vectorstore() -> FAISS:
 
     os.makedirs(FAISS_INDEX_PATH, exist_ok=True)
     vs.save_local(FAISS_INDEX_PATH)
-    print(f"FAISS index disimpan.")
+    print(f"💾  FAISS index disimpan.")
     return vs
 
 
@@ -119,7 +115,7 @@ def get_pipeline():
     """Singleton: retriever + kedua LLM (Gemini & Groq), dibuild sekali saat startup."""
     global _retriever, _llm_gemini, _llm_groq
     if _retriever is None:
-        print("Membangun RAG pipeline...")
+        print("⚙️  Membangun RAG pipeline...")
         vs = _load_or_build_vectorstore()
         _retriever = vs.as_retriever(search_kwargs={"k": 4})
 
@@ -139,7 +135,7 @@ def get_pipeline():
             streaming=True,
         )
 
-        print(f"RAG pipeline siap. Primary: {settings.GEMINI_MODEL} | Fallback: {settings.GROQ_MODEL}")
+        print(f"✅  RAG pipeline siap. Primary: {settings.GEMINI_MODEL} | Fallback: {settings.GROQ_MODEL}")
     return _retriever, _llm_gemini, _llm_groq
 
 
@@ -186,7 +182,7 @@ def query_cv(question: str, chat_history: list[dict] = []) -> dict:
     sources = _get_sources(docs)
     messages = _build_messages(question, context, chat_history)
 
-    # Coba Gemini dulu 
+    # Coba Gemini dulu
     try:
         print(f"🤖  Menggunakan {settings.GEMINI_MODEL}...")
         response = llm_gemini.invoke(messages)
@@ -200,9 +196,9 @@ def query_cv(question: str, chat_history: list[dict] = []) -> dict:
         if not _should_fallback(e):
             raise  # Error lain (bukan quota/rate limit) — langsung raise
 
-        print(f"Gemini gagal ({e}). Fallback ke {settings.GROQ_MODEL}...")
+        print(f"⚠️  Gemini gagal ({e}). Fallback ke {settings.GROQ_MODEL}...")
 
-    # Fallback ke Groq 
+    # Fallback ke Groq
     try:
         response = llm_groq.invoke(messages)
         return {
@@ -234,7 +230,7 @@ def stream_cv(question: str, chat_history: list[dict] = []):
         sources = _get_sources(docs)
         messages = _build_messages(question, context, chat_history)
 
-        # Tentukan LLM yang akan dipakai 
+        # Tentukan LLM yang akan dipakai
         llm_to_use = llm_gemini
         model_name = settings.GEMINI_MODEL
 
@@ -251,18 +247,18 @@ def stream_cv(question: str, chat_history: list[dict] = []):
                     yield f"data: {json.dumps({'type': 'token', 'data': escaped})}\n\n"
 
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
-            return  
+            return  # Gemini berhasil — selesai
 
         except Exception as e:
             if not _should_fallback(e):
                 raise  # Error lain — langsung raise ke outer try
 
-            print(f"Gemini stream gagal ({e}). Fallback ke {settings.GROQ_MODEL}...")
+            print(f"⚠️  Gemini stream gagal ({e}). Fallback ke {settings.GROQ_MODEL}...")
 
             # Beri tahu client bahwa kita switch model
             yield f"data: {json.dumps({'type': 'model', 'data': settings.GROQ_MODEL})}\n\n"
 
-        # Fallback: Stream dengan Groq
+        # Fallback: Stream dengan Groq 
         for chunk in llm_groq.stream(messages):
             token = chunk.content
             if token:

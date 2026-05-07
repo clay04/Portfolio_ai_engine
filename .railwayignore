@@ -1,0 +1,15 @@
+# Jangan upload FAISS index — akan di-rebuild otomatis di Railway
+data/faiss_index/
+
+# Virtual environment
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+
+# Test files
+test_connection.py
+
+# Local env
+.env
